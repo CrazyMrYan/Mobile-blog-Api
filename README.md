@@ -1,4 +1,4 @@
-# [Mobile-blog](https://github.com/CrazyMrYan/Mobile-blog)
+# [Mobile-blog-Api](https://github.com/CrazyMrYan/Mobile-blog-Api)
 
 🚀 基于 `node.js` 写的一个比较简陋的接口，然后数据库采用的是 `mysql`
 
