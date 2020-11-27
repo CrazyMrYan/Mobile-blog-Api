@@ -2,7 +2,6 @@ const express = require('express');
 const app = express();
 
 const fs = require('fs');
-
 const path = require('path')
 var uuid = require('node-uuid');
 const qs = require('querystring');
@@ -13,6 +12,13 @@ const Query = require('./src/tool/query');
 const expressJwt = require('express-jwt')
 const { PWD, TOKEN_KEY, TIME } = require('./src/tool/token');
 const vKey = require('./src/verify')
+const city = require('./src/city')
+const request = require('request');
+
+// 解析 callback 参数
+const getBracketStr = require('./src/tool/getValue');
+// 聚合天气 api
+const getWeather = require('./src/api/getWeather')
 // 设置请求的参数格式
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json())
@@ -26,8 +32,6 @@ app.all("*", function (req, res, next) {
     res.header("Access-Control-Allow-Headers", "*");
     //跨域允许的请求方式 
     res.header("Access-Control-Allow-Methods", "DELETE,PUT,POST,GET,OPTIONS");
-
-    console.log(req.method.toLowerCase())
     // res.sendStatus(200)
     if (req.method.toLowerCase() == 'options') {
         res.sendStatus(200);  //让options尝试请求快速结束
@@ -50,7 +54,6 @@ app.use((err, req, res, next) => {
     if (token) {
         jwt.verify(token, TOKEN_KEY, (err, decoded) => {
             if (err) {
-                console.log(err.name)
                 switch (err.name) {
                     case 'JsonWebTokenError':
                         res.status(403).send({ code: -1, msg: 'token不存在' });
@@ -61,7 +64,6 @@ app.use((err, req, res, next) => {
                 }
             } else {
                 next()
-                console.log(token)
             }
         })
     } else {
@@ -87,7 +89,6 @@ app.post('/api/user/login', async (req, res, next) => {
                 res.send({ code: 200, msg: '登录成功!', token: token })
             }
         } catch (e) {
-            console.log(e)
         }
     } else {
         res.send({ code: 400, msg: '参数名不对!' })
@@ -133,7 +134,6 @@ app.delete('/api/delete/user', async (req, res, next) => {
         } else {
             await Query('DELETE FROM user WHERE id = ?', [id]).then(
                 result => {
-                    console.log(result)
                     res.json({ code: 200, msg: '删除成功！' });
                 }
             ).catch(error => {
@@ -169,7 +169,6 @@ app.post('/api/push/pyq', async (req, res, next) => {
         await Query('INSERT INTO pyq(img,id,text,userId) VALUES(?,?,?,?)', data).then(
             result => {
                 res.json({ code: 200, msg: '发布成功！' });
-                console.log(result)
             }
         ).catch(error => {
             console.log(error)
@@ -189,7 +188,6 @@ app.post('/api/push/blog', async (req, res, next) => {
         await Query('INSERT INTO blog(title,content,author,id) VALUES(?,?,?,?)', data).then(
             result => {
                 res.json({ code: 200, msg: '发布成功！' });
-                console.log(result)
             }
         ).catch(error => {
             console.log(error)
@@ -199,25 +197,6 @@ app.post('/api/push/blog', async (req, res, next) => {
     }
 })
 
-// // 发布博客接口
-// app.post('/api/push/blog', async (req, res, next) => {
-//     // param 是你需要的参数 写成一个数组传递
-//     let param = ['title', 'content', 'author'];
-//     if (vKey(param, req.body)) {
-//         let { title, content, author } = req.body;
-//         let data = [title, content, author, uuid.v1()]
-//         await Query('INSERT INTO blog(title,content,author,id,create_date) VALUES(?,?,?,?)', data).then(
-//             result => {
-//                 res.json({ code: 200, msg: '发布成功！' });
-//                 console.log(result)
-//             }
-//         ).catch(error => {
-//             console.log(error)
-//         })
-//     } else {
-//         res.send({ code: 400, msg: '参数名不对!' })
-//     }
-// })
 
 // 获取列表接口
 app.post('/api/blog/list', async (req, res, next) => {
@@ -226,8 +205,8 @@ app.post('/api/blog/list', async (req, res, next) => {
     if (vKey(param, req.body)) {
         let { keyword, pageSize, pageIndex } = req.body;
         let data = [keyword, pageSize, pageIndex]
-        let KeyString = "'%"+keyword+"%'"
-        let sql = !!!keyword ? 'SELECT * FROM blog  limit ' + pageSize * pageIndex + ',' + pageSize :  'SELECT * FROM blog WHERE title LIKE '+KeyString+' limit ' + pageSize * pageIndex + ',' + pageSize
+        let KeyString = "'%" + keyword + "%'"
+        let sql = !!!keyword ? 'SELECT * FROM blog  limit ' + pageSize * pageIndex + ',' + pageSize : 'SELECT * FROM blog WHERE title LIKE ' + KeyString + ' limit ' + pageSize * pageIndex + ',' + pageSize
         await Query(sql).then(
             result => {
                 res.json({ code: 200, msg: '查询成功！', data: result });
@@ -252,7 +231,48 @@ app.post('/api/blog/details', async (req, res, next) => {
     }
 })
 
+// 查询当地天气预报
+app.post('/api/cityWeather', async (req, res, next) => {
+    if (!!req.body.city) {
+        let cityName = req.body.city.replace(/市|县|区|省/g, '')
+        getWeather(res, cityName)
+    } else
+        // 调用搜狐 api 获取当前城市地区代码
+        request('http://pv.sohu.com/cityjson?ie=utf-8', (err, response, data) => {
+            // 将callback参数解析
+            let cityInfo = getBracketStr(data + '');
+
+            // 遍历本地城市数据
+            city.forEach(item => {
+                // 拿到相同 cid 取当前对象中的name参数
+                if (item.REGIONCODE == JSON.parse(cityInfo).cid) {
+                    let cityName = item.REGIONNAME
+                    // 截取城市字符串
+                    item.cityName = cityName.replace(/市|县|区|省/g, '')
+                    // 调取聚合数据 api 城市天气
+                    getWeather(res, item.cityName)
+                    return false
+                }
+            })
+        })
+
+})
+
+function getIPAddress() {
+    let interfaces = require('os').networkInterfaces(), host;
+    for (let devName in interfaces) {
+        let iface = interfaces[devName];
+        for (let i = 0; i < iface.length; i++) {
+            let alias = iface[i];
+            if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
+                host = alias.address;
+                return host;
+            }
+        }
+    }
+    return host;
+}
 app.listen(8080, () => {
-    console.log('服务启动')
-    console.log('------------------------ 端口号为 8080 ------------------------')
+    console.log('服务启动' + getIPAddress() + ':8080')
+    // console.log('------------------------ 端口号为 8080 ------------------------')
 })
