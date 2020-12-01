@@ -2,23 +2,25 @@ const express = require('express');
 const app = express();
 
 const fs = require('fs');
-const path = require('path')
+const path = require('path');
 var uuid = require('node-uuid');
 const qs = require('querystring');
-const jwt = require("jsonwebtoken")
+const jwt = require("jsonwebtoken");
 const url = require('url');
 const bodyParser = require("body-parser");
 const Query = require('./src/tool/query');
-const expressJwt = require('express-jwt')
+const expressJwt = require('express-jwt');
 const { PWD, TOKEN_KEY, TIME } = require('./src/tool/token');
-const vKey = require('./src/verify')
-const city = require('./src/city')
+const vKey = require('./src/verify');
+const city = require('./src/city');
 const request = require('request');
 
 // 解析 callback 参数
 const getBracketStr = require('./src/tool/getValue');
 // 聚合天气 api
-const getWeather = require('./src/api/getWeather')
+const getWeather = require('./src/api/getWeather');
+// 
+const getIPAddress = require('./src/tool/host');
 // 设置请求的参数格式
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json())
@@ -63,7 +65,7 @@ app.use((err, req, res, next) => {
                         break;
                 }
             } else {
-                next()
+                next();
             }
         })
     } else {
@@ -82,16 +84,16 @@ app.post('/api/user/login', async (req, res, next) => {
             //和数据库对比
             let user = await Query('select * from user where name = ? and pwd = ?', [name, pwd]);
             if (!user || user.length == 0) {
-                res.json({ code: -1, msg: '账号或者密码错误!' })
+                res.json({ code: -1, msg: '账号或者密码错误!' });
             } else {  //如果正确
                 //创建token   jwt.sign方法第一个参数可以存储信息 ,第二个参数存储token密钥 第三个是token过期时间
-                let token = jwt.sign({ name }, TOKEN_KEY, { expiresIn: TIME })
-                res.send({ code: 200, msg: '登录成功!', token: token })
+                let token = jwt.sign({ name }, TOKEN_KEY, { expiresIn: TIME });
+                res.send({ code: 200, msg: '登录成功!', token: token });
             }
         } catch (e) {
         }
     } else {
-        res.send({ code: 400, msg: '参数名不对!' })
+        res.send({ code: 400, msg: '参数名不对!' });
     }
 
 })
@@ -104,23 +106,23 @@ app.post('/api/user/register', async (req, res) => {
             // 判断是否存在数据库
             let user = await Query('select * from user where name  =  ?', [name]);
             if (!user || user.length == 0) {
-                let data = [name, pwd, uuid.v1()]
+                let data = [name, pwd, uuid.v1()];
                 //插入数据
                 await Query('INSERT INTO user(name,pwd,id) VALUES(?,?,?)', data).then(
                     result => {
                         res.json({ code: 200, msg: '注册成功!' });
                     }
                 ).catch(err => {
-                    res.json(err)
+                    res.json(err);
                 })
             } else {
                 res.json({ code: -1, msg: '该账号已存在!' });
             }
         } catch (err) {
-            console.log(err)
+            console.log(err);
         }
     } else {
-        res.send({ code: 400, msg: '参数名不对!' })
+        res.send({ code: 400, msg: '参数名不对!' });
     }
 })
 
@@ -137,11 +139,11 @@ app.delete('/api/delete/user', async (req, res, next) => {
                     res.json({ code: 200, msg: '删除成功！' });
                 }
             ).catch(error => {
-                res.json(error)
+                res.json(error);
             })
         }
     } else {
-        res.send({ code: 400, msg: '参数名不对!' })
+        res.send({ code: 400, msg: '参数名不对!' });
     }
 
 })
@@ -241,37 +243,44 @@ app.post('/api/cityWeather', async (req, res, next) => {
         request('http://pv.sohu.com/cityjson?ie=utf-8', (err, response, data) => {
             // 将callback参数解析
             let cityInfo = getBracketStr(data + '');
-
             // 遍历本地城市数据
             city.forEach(item => {
                 // 拿到相同 cid 取当前对象中的name参数
                 if (item.REGIONCODE == JSON.parse(cityInfo).cid) {
-                    let cityName = item.REGIONNAME
+                    let cityName = item.REGIONNAME;
                     // 截取城市字符串
-                    item.cityName = cityName.replace(/市|县|区|省/g, '')
+                    item.cityName = cityName.replace(/市|县|区|省/g, '');
                     // 调取聚合数据 api 城市天气
-                    getWeather(res, item.cityName)
-                    return false
+                    getWeather(res, item.cityName);
+                    return false;
                 }
             })
         })
-
 })
 
-function getIPAddress() {
-    let interfaces = require('os').networkInterfaces(), host;
-    for (let devName in interfaces) {
-        let iface = interfaces[devName];
-        for (let i = 0; i < iface.length; i++) {
-            let alias = iface[i];
-            if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
-                host = alias.address;
-                return host;
+
+// 查询历史上的今天
+app.post('/api/HistoryToday', async (req, res, next) => {
+    let month = new Date().getMonth() + 1;
+    let date = new Date().getDate();
+    request('http://api.juheapi.com/japi/toh?month=' + month + '&day=' + date +  '&key=9ba59c5fa55c5d3578ddaa8d3cc4636f',
+        (err, response, body) => {
+            if (!err && response.statusCode == 200) {
+                let data = JSON.parse(body);
+                data.code = 200;
+                data.msg = '请求成功！';
+                data.data = data.result;
+                delete data.error_code;
+                delete data.result;
+                res.json(data)
+            }else{
+                res.json(err)
             }
         }
-    }
-    return host;
-}
+    )
+})
+// ts = Math.round(new Date().getTime()/1000).toString();
+// http://api.juheapi.com/japi/toh
 app.listen(8080, () => {
     console.log('服务启动' + getIPAddress() + ':8080')
     // console.log('------------------------ 端口号为 8080 ------------------------')
