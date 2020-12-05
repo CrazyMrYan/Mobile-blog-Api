@@ -2,6 +2,7 @@ const express = require('express');
 const app = express();
 
 const fs = require('fs');
+var multer=require('multer')
 const path = require('path');
 var uuid = require('node-uuid');
 const qs = require('querystring');
@@ -47,7 +48,7 @@ app.use(expressJwt({
     algorithms: ['HS256']
 }).unless({
     //白名单,除了这里写的地址，其他的URL都需要token验证
-    path: ['/api/user/register', '/api/user/login']
+    path: ['/api/user/register', '/api/user/login','/profile','/upload/*']
 }));
 
 // 全局拦截
@@ -263,7 +264,7 @@ app.post('/api/cityWeather', async (req, res, next) => {
 app.post('/api/HistoryToday', async (req, res, next) => {
     let month = new Date().getMonth() + 1;
     let date = new Date().getDate();
-    request('http://api.juheapi.com/japi/toh?month=' + month + '&day=' + date +  '&key=9ba59c5fa55c5d3578ddaa8d3cc4636f',
+    request('http://api.juheapi.com/japi/toh?month=' + month + '&day=' + date + '&key=9ba59c5fa55c5d3578ddaa8d3cc4636f',
         (err, response, body) => {
             if (!err && response.statusCode == 200) {
                 let data = JSON.parse(body);
@@ -273,7 +274,7 @@ app.post('/api/HistoryToday', async (req, res, next) => {
                 delete data.error_code;
                 delete data.result;
                 res.json(data)
-            }else{
+            } else {
                 res.json(err)
             }
         }
@@ -281,6 +282,46 @@ app.post('/api/HistoryToday', async (req, res, next) => {
 })
 // ts = Math.round(new Date().getTime()/1000).toString();
 // http://api.juheapi.com/japi/toh
+
+var createFolder = function (folder) {
+    try {
+        fs.accessSync(folder);
+    } catch (e) {
+        fs.mkdirSync(folder);
+    }
+};
+
+var uploadFolder = '../upload/';
+
+createFolder(uploadFolder);
+
+// 通过 filename 属性定制
+var storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadFolder); // 保存的路径，备注：需要自己创建
+    },
+    filename: function (req, file, cb) {
+        // 将保存文件名设置为 字段名 + 时间戳，比如 logo-1478521468943
+        let suffix = file.mimetype.split('/')[1];//获取文件格式
+        console.log(suffix)
+        cb(null, file.fieldname + '-' + Date.now() + '.' + suffix);
+    }
+});
+
+// 通过 storage 选项来对 上传行为 进行定制化
+var upload = multer({ storage: storage })
+
+app.post('/profile', upload.single('Filedata'), function (req, res, next) {
+    //req.body contains the text fields
+    console.log(req.file, '------', req.body, '-------', req.file.path);
+    console.log()
+    // res.end(req.file.buffer);
+    // console.log(req.file.buffer.toString().length);
+    res.end(`<img src="${getIPAddress()+":8080/upload/"+req.file.filename}"/>`)
+
+    res.end('ok');
+})
+
 app.listen(8080, () => {
     console.log('服务启动' + getIPAddress() + ':8080')
     // console.log('------------------------ 端口号为 8080 ------------------------')
